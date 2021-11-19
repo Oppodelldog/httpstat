@@ -28,7 +28,7 @@ $ httpstat https://example.com/
 - The response body is usually discarded, you can use `-o filename` to save it to a file, or `-O` to save it to the file name suggested by the server.
 - HTTP/HTTPS proxies supported via the usual `HTTP_PROXY`/`HTTPS_PROXY` env vars (as well as lower case variants).
 - Supply your own client side certificate with `-E cert.pem`.
-
+- Customize output with go templating `-t`
 ## Contributing
 
 Bug reports are most welcome, but with the exception of #5, this project is closed.
