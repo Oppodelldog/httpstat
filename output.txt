@@ -18,6 +18,7 @@ connected to {{.Result.ConnectedTo}}
 {{- range .Results}}
     Summary
     {{.Response.StatusCode}}
+    Json Export -> {{ Json .Response.Header }}
 {{end}}
 
 {{- if .Results}}

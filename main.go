@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -82,11 +84,24 @@ type viewModelDurations struct {
 	Total            time.Duration
 }
 
+type viewModelResponse struct {
+	Status           string
+	StatusCode       int
+	Proto            string
+	ProtoMajor       int
+	ProtoMinor       int
+	Header           http.Header
+	ContentLength    int64
+	TransferEncoding []string
+	Trailer          http.Header
+	TLS              *tls.ConnectionState
+}
+
 type viewModel struct {
 	ConnectedTo  string
 	ConnectedVia string
-	Response     http.Response
 	Duration     viewModelDurations
+	Response     viewModelResponse
 }
 
 var viewModels []viewModel
@@ -404,7 +419,18 @@ func visit(url *url.URL) {
 	var viewModel = viewModel{
 		ConnectedTo:  connectedTo,
 		ConnectedVia: connectedVia,
-		Response:     *resp,
+		Response: viewModelResponse{
+			Status:           resp.Status,
+			StatusCode:       resp.StatusCode,
+			Proto:            resp.Proto,
+			ProtoMajor:       resp.ProtoMajor,
+			ProtoMinor:       resp.ProtoMinor,
+			Header:           resp.Header,
+			ContentLength:    resp.ContentLength,
+			TransferEncoding: resp.TransferEncoding,
+			Trailer:          resp.Trailer,
+			TLS:              resp.TLS,
+		},
 		Duration: viewModelDurations{
 			DNSLookup:        t1.Sub(t0),
 			TCPConnection:    t3.Sub(t1),
@@ -471,6 +497,14 @@ func renderResult(singleStep bool, models ...viewModel) {
 		"Blue":    color.BlueString,
 		"Magenta": color.MagentaString,
 		"White":   color.WhiteString,
+		"Json": func(v interface{}) (string, error) {
+			var jsonBytes = bytes.NewBufferString("")
+			err = json.NewEncoder(jsonBytes).Encode(v)
+			if err != nil {
+				return "", err
+			}
+			return jsonBytes.String(), nil
+		},
 	})
 	if len(templateFilename) > 0 {
 		t, err = t.ParseFiles(templateFilename)
