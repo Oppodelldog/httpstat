@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/fatih/color"
@@ -60,6 +61,7 @@ var (
 	clientCertFile  string
 	fourOnly        bool
 	sixOnly         bool
+	outputTpl       string
 
 	// number of redirects followed
 	redirectsFollowed int
@@ -68,6 +70,26 @@ var (
 )
 
 const maxRedirects = 10
+
+type viewModelDurations struct {
+	DNSLookup        time.Duration
+	TCPConnection    time.Duration
+	ServerProcessing time.Duration
+	ContentTransfer  time.Duration
+	NameLookup       time.Duration
+	Connect          time.Duration
+	StartTransfer    time.Duration
+	Total            time.Duration
+}
+
+type viewModel struct {
+	ConnectedTo  string
+	ConnectedVia string
+	Response     http.Response
+	Duration     viewModelDurations
+}
+
+var viewModels []viewModel
 
 func init() {
 	flag.StringVar(&httpMethod, "X", "GET", "HTTP method to use")
@@ -82,6 +104,7 @@ func init() {
 	flag.StringVar(&clientCertFile, "E", "", "client cert file for tls config")
 	flag.BoolVar(&fourOnly, "4", false, "resolve IPv4 addresses only")
 	flag.BoolVar(&sixOnly, "6", false, "resolve IPv6 addresses only")
+	flag.StringVar(&outputTpl, "t", "", "custom output template as string or @filename")
 
 	flag.Usage = usage
 }
@@ -99,6 +122,10 @@ func usage() {
 }
 
 func printf(format string, a ...interface{}) (n int, err error) {
+	if len(outputTpl) > 0 {
+		return 0, nil
+	}
+
 	return fmt.Fprintf(color.Output, format, a...)
 }
 
@@ -220,6 +247,7 @@ func visit(url *url.URL) {
 	req := newRequest(httpMethod, url, postBody)
 
 	var t0, t1, t2, t3, t4, t5, t6 time.Time
+	var connectedTo string
 
 	trace := &httptrace.ClientTrace{
 		DNSStart: func(_ httptrace.DNSStartInfo) { t0 = time.Now() },
@@ -236,6 +264,7 @@ func visit(url *url.URL) {
 			}
 			t2 = time.Now()
 
+			connectedTo = addr
 			printf("\n%s%s\n", color.GreenString("Connected to "), color.CyanString(addr))
 		},
 		GotConn:              func(_ httptrace.GotConnInfo) { t3 = time.Now() },
@@ -341,7 +370,9 @@ func visit(url *url.URL) {
 		return strings.Join(v, "\n")
 	}
 
-	fmt.Println()
+	if len(outputTpl) == 0 {
+		fmt.Println()
+	}
 
 	switch url.Scheme {
 	case "https":
@@ -370,6 +401,25 @@ func visit(url *url.URL) {
 		)
 	}
 
+	var viewModel = viewModel{
+		ConnectedTo:  connectedTo,
+		ConnectedVia: connectedVia,
+		Response:     *resp,
+		Duration: viewModelDurations{
+			DNSLookup:        t1.Sub(t0),
+			TCPConnection:    t3.Sub(t1),
+			ServerProcessing: t4.Sub(t3),
+			ContentTransfer:  t7.Sub(t4),
+			NameLookup:       t1.Sub(t0),
+			Connect:          t3.Sub(t0),
+			StartTransfer:    t4.Sub(t0),
+			Total:            t7.Sub(t0),
+		},
+	}
+
+	viewModels = append(viewModels, viewModel)
+	renderResult(true, viewModel)
+
 	if followRedirects && isRedirect(resp) {
 		loc, err := resp.Location()
 		if err != nil {
@@ -386,6 +436,62 @@ func visit(url *url.URL) {
 		}
 
 		visit(loc)
+	}
+	renderResult(false, viewModels...)
+}
+
+func renderResult(singleStep bool, models ...viewModel) {
+	var (
+		err  error
+		data = struct {
+			Result  *viewModel
+			Results []viewModel
+		}{}
+		templateString   string
+		templateFilename string
+	)
+
+	if len(outputTpl) == 0 {
+		return
+	}
+
+	if outputTpl[0] == '@' {
+		templateFilename = outputTpl[1:]
+	} else {
+		templateString = outputTpl
+	}
+
+	t := template.New(templateFilename)
+	t.Funcs(map[string]interface{}{
+		"Cyan":    color.CyanString,
+		"Black":   color.BlackString,
+		"Red":     color.RedString,
+		"Green":   color.GreenString,
+		"Yellow":  color.YellowString,
+		"Blue":    color.BlueString,
+		"Magenta": color.MagentaString,
+		"White":   color.WhiteString,
+	})
+	if len(templateFilename) > 0 {
+		t, err = t.ParseFiles(templateFilename)
+		if err != nil {
+			log.Fatalf("unable to parse custom output template file: %v", err)
+		}
+	} else {
+		t, err = t.Parse(templateString)
+		if err != nil {
+			log.Fatalf("unable to parse custom output template: %v", err)
+		}
+	}
+
+	if singleStep {
+		data.Result = &models[0]
+	} else {
+		data.Results = models
+	}
+	err = t.Execute(color.Output, data)
+	if err != nil {
+		log.Fatalf("unable to render custom output template: %v", err)
 	}
 }
 

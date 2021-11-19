@@ -1,0 +1,33 @@
+This is a sample template
+
+it will be called for each request giving in .Result (there may be many requests if following redirects)
+it will be called finally giving all data for summary in .Results
+{{ define "statuscode"}}
+{{- Cyan . }}
+{{- end}}
+{{- if .Result}}
+connected to {{.Result.ConnectedTo}}
+    via:    {{.Result.ConnectedVia}}
+    Status: {{template "statuscode" .Result.Response.Status}}
+    Headers:
+        {{- range $name,$value := .Result.Response.Header}}
+        {{ $name }}: {{ $value }}
+        {{- end}}
+{{end}}
+
+{{- range .Results}}
+    Summary
+    {{.Response.StatusCode}}
+{{end}}
+
+{{- if .Results}}
+Color OF COURSE!!!
+{{ Cyan "i can Cyan " }}
+{{- Black "i can Black " }}
+{{- Red "i can Red " }}
+{{- Green "i can Green " }}
+{{- Yellow "i can Yellow " }}
+{{- Blue "i can Blue " }}
+{{- Magenta "i can Magenta " }}
+{{- White "i can White " }}
+{{end}}
